@@ -4,7 +4,7 @@
  * - randomEdits: 随机生成一批编辑动作（add/delete/update/move）逐条应用到旧树，得到新树
  */
 
-import { applyOps, type IBlock, type DiffOp } from '../src/index';
+import { applyOps, type IBlock, type DiffOp } from '../index';
 
 export type P = string;
 

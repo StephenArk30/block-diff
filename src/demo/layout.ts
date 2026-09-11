@@ -4,7 +4,7 @@
  * 父节点水平居中于其首尾孩子之间。子树的槽位区间连续且互不重叠，保证节点不碰撞。
  */
 
-import type { IBlock } from '../src/index';
+import type { IBlock } from '../index';
 
 export const NODE_W = 104; // 节点盒宽
 export const NODE_H = 34; // 节点盒高

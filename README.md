@@ -1,20 +1,22 @@
 # block-diff
 
-Block tree diff 算法：给定新旧两棵 block tree，diff 出一系列操作 —— **add / delete / update / move**。
+English | [简体中文](./README.cn.md)
 
-- 输入为扁平 `IBlock[]`（父子关系由 `parentId` 关联），支持**子树 diff**（树根可带指向树外的 `parentId`）与森林；
-- `props` 比较由调用方注入 `equal` 函数；
-- 同父重排基于 **Myers LCS**，单父内 move 数为理论最小值；
-- 附带参考实现 `applyOps`（op 应用器）与可视化 demo。
+A block tree diff algorithm: given an old and a new block tree, produce a sequence of operations — **add / delete / update / move**.
 
-**在线 Demo**：https://stephenark30.github.io/block-diff/
+- Input is a flat `IBlock[]` (parent-child relations via `parentId`); supports **subtree diff** (tree roots may carry a `parentId` pointing outside the tree) and forests;
+- `props` comparison is injected by the caller via an `equal` function;
+- Same-parent reordering is based on **Myers LCS**; the number of moves per parent is the theoretical minimum;
+- Ships with a reference applier `applyOps` and an interactive visual demo (English / 中文).
 
-## 安装与使用
+**Live demo**: https://stephenark30.github.io/block-diff/
+
+## Install & Usage
 
 ```bash
 npm install
-npm test              # 全部测试（含 fuzz + 随机 round-trip）
-npm run demo          # 本地启动可视化 demo: http://localhost:5173
+npm test              # all tests (fuzz + random round-trip included)
+npm run demo          # run the visual demo locally: http://localhost:5173
 ```
 
 ### API
@@ -25,183 +27,189 @@ import { diffBlockTrees, applyOps, type IBlock, type DiffOp } from './src/index'
 interface IBlock<T> { id: string; props: T; parentId?: string }
 
 const ops: DiffOp<MyProps>[] = diffBlockTrees(oldBlocks, newBlocks, {
-  equal: (a, b) => isEqual(a, b),   // props 深比较，由调用方注入
+  equal: (a, b) => isEqual(a, b),   // deep comparison of props, injected by the caller
 });
-// op 类型：
-// add:    { type: 'add',    id, parentId, before?, block }  // 在 before 前插入（缺省 = 追加到末尾）
+// Op types:
+// add:    { type: 'add',    id, parentId, before?, block }  // insert before `before` (omitted = append at end)
 // delete: { type: 'delete', id }
 // update: { type: 'update', id, props }
-// move:   { type: 'move',   id, parentId, before? }         // 移动 block（含子树）到 before 前
+// move:   { type: 'move',   id, parentId, before? }         // move block (with subtree) before `before`
 
-const newBlocks2 = applyOps(oldBlocks, ops);  // 参考应用器（需按输出顺序应用）
+const newBlocks2 = applyOps(oldBlocks, ops);  // reference applier (must apply in output order)
 ```
 
 ---
 
-# 算法说明
+# Algorithm
 
-## 1. 问题定义
+## 1. Problem
 
-给定新旧两棵 block tree，计算把旧树变换为新树的操作序列。
+Given an old and a new block tree, compute a minimal sequence of operations transforming the old tree into the new one.
 
-**输入约定**：
+**Input conventions**:
 
-- 每棵树以扁平的 `IBlock[]` 给出，父子关系由 `parentId` 关联；数组顺序即兄弟顺序；
-- 树可能只是某个更大文档的**子树**，根节点的 `parentId` 指向树外的真实父节点（如 `'page-1'`）；
-- 同一棵树内 `id` 唯一（重复会抛错）；
-- `props` 的比较完全依赖调用方注入的 `equal(a, b)` 函数。
+- Each tree is given as a flat `IBlock[]`; parent-child relations are expressed via `parentId`; array order defines sibling order;
+- A tree may be a **subtree** of a larger document — its root's `parentId` points to the real parent outside the tree (e.g. `'page-1'`);
+- Block `id`s are unique within a tree (duplicates throw);
+- `props` comparison relies entirely on the caller-provided `equal(a, b)`.
 
-## 2. 算法总览
+## 2. Overview
 
-算法分为三个阶段，分别产出 `update`、`move`/`add`（交错）、`delete`：
+The algorithm runs in three phases producing `update`, then `move`/`add` (interleaved), then `delete`:
 
 ```
-① 预处理
+① Preprocessing
    buildTree(oldBlocks) / buildTree(newBlocks)
-   - 校验 id 唯一；
-   - parentId 不在集合内的块（含根的外部 parentId）统一挂到"虚拟超根" __VIRTUAL_ROOT__ 下，
-     由此子树 / 森林 / 单根三种输入被归一为同一种结构；
-   - survived = 新旧两树 id 的交集（"幸存"节点）。
+   - validate unique ids;
+   - blocks whose parentId is outside the set (including the roots' external parentIds) hang
+     under a "virtual super root" __VIRTUAL_ROOT__, unifying subtree / forest / single-root
+     inputs into one structure;
+   - survived = intersection of ids of the two trees.
 
-② 逐类计算 op
-   update  ：新树先序扫描幸存节点，props 不 equal 则发 update；
-   move/add：按新树先序逐个父节点处理，同父内按新孩子顺序从左到右；
-   delete  ：旧树后序扫描，未幸存节点发 delete（子先于父）。
+② Per-category op computation
+   update  : pre-order scan of the new tree; emit update when props are not equal;
+   move/add: per-parent processing in new-tree pre-order, left-to-right within a parent;
+   delete  : post-order scan of the old tree; emit delete for non-survived blocks
+             (children before parents).
 
-③ 输出顺序：update → move/add（交错）→ delete
+③ Output order: update → move/add (interleaved) → delete
 ```
 
-## 3. 核心概念
+## 3. Core concepts
 
-| 概念 | 定义 | 作用 |
+| Concept | Definition | Role |
 |---|---|---|
-| **幸存（survived）** | `id ∈ 新树 ∩ 旧树` | 区分 add/delete 与 update/move 的对象 |
-| **稳定（stable）** | 在某父节点的孩子序列中，被新旧序列 LCS 命中的幸存块 | 作为锚点（anchor），不发出任何 op |
-| **错位（displaced）** | 幸存但不稳定的孩子 | 发出 move（含换父场景） |
-| **锚点（before）** | 当前块之后**第一个稳定兄弟** | add/move 的插入定位；无则追加到末尾 |
+| **survived** | `id ∈ new tree ∩ old tree` | Separates add/delete targets from update/move targets |
+| **stable** | A survived child hit by the LCS of its parent's old/new child sequences | Serves as an anchor; emits no op |
+| **displaced** | Survived but not stable | Emits a move (covers reparenting) |
+| **anchor (`before`)** | The **first stable sibling after** the current block | Insertion target for add/move; omitted = append at end |
 
-**关键引理（LCS 性质）**：稳定集合内的块在新旧两个兄弟序列中相对顺序一致。因此稳定块天然"已在正确位置"，所有重排只需移动错位块。
+**Key lemma (LCS property)**: blocks in the stable set keep the same relative order in both the old and the new sibling sequences. Stable blocks are therefore already "in place"; all reordering only moves displaced blocks.
 
-## 4. 各 op 的产生规则
+## 4. How each op is produced
 
 ### 4.1 update
 
-对新树做先序遍历，每个幸存节点调用 `equal(old.props, new.props)`，不相等则发 `{ update, id, props: 新props }`。与结构无关，可独立先行。
+Pre-order traversal of the new tree; for every survived node call `equal(old.props, new.props)` and emit `{ update, id, props }` when unequal. Independent of structure, so it can run first.
 
-### 4.2 move / add（算法核心）
+### 4.2 move / add (the core)
 
-对新树做先序遍历，对每个**父节点 P**（含虚拟超根）：
+Pre-order traversal of the new tree; for every **parent P** (including the virtual super root):
 
-1. 收集 P 的两组孩子序列（只含幸存块，保持各自顺序）：
-   - `oldSeq`：P 在旧树中的幸存孩子（换父离开的块不在 P 的新孩子里，天然不参与匹配）；
-   - `newSeq`：P 在新树中的幸存孩子（换父加入的块只出现在此侧）。
-2. 对两个 id 序列求 **LCS（Myers diff 算法，O((N+M)·D)）**，命中的块标记为稳定。
-3. 从左到右扫描 P 的**新孩子**（含新增块）：
-   - 新块 → 发 `add`，锚点 = 其后第一个稳定兄弟；
-   - 幸存但错位 → 发 `move`，锚点 = 其后第一个稳定兄弟；
-   - 稳定块 → 不发 op。
+1. Collect two child sequences of P (survived blocks only, each in its own order):
+   - `oldSeq`: P's survived children in the old tree (blocks that left P are absent from P's new children, so they naturally don't participate);
+   - `newSeq`: P's survived children in the new tree (blocks that moved into P appear only here).
+2. Compute the **LCS of the two id sequences (Myers diff, O((N+M)·D))**; hit blocks are marked stable.
+3. Scan P's **new children** (including new blocks) left to right:
+   - new block → emit `add`, anchored at the first stable sibling after it;
+   - survived but displaced → emit `move`, anchored at the first stable sibling after it;
+   - stable block → emit nothing.
 
-> 换父的块一定出现在新父的 `newSeq` 中且不在其 `oldSeq` 中，故必然"错位"，由**新父**的扫描发出唯一一个 move；旧父一侧因为它不在 `newSeq` 中而不会重复发 op。
+> A reparented block necessarily appears in the new parent's `newSeq` but not its `oldSeq`, hence is always "displaced": exactly one move is emitted by the **new parent's** scan; the old parent stays silent because the block is not in its `newSeq`.
 
 ### 4.3 delete
 
-对旧树做后序遍历，未幸存的块发 `delete`。后序保证子先于父。注意：**未幸存块的子树里可能有幸存块**（被 move 到了新父），所以 delete 不能按"整棵子树"盲删，而是逐块发出，由 move 先把它们摘出去（见 §5 顺序保证）。
+Post-order traversal of the old tree; non-survived blocks emit `delete` (children before parents). Note: **a non-survived block's subtree may contain survived blocks** (moved to new parents), so deletes are emitted per block instead of blindly cutting subtrees; the moves extract them first (see §5).
 
-## 5. op 输出顺序与正确性
+## 5. Output order and correctness
 
-输出顺序固定为：**`update` → `move`/`add`（按新树先序逐父节点、同父内按新孩子索引顺序交错）→ `delete`（后序）**。按此顺序应用可保证最终结构与新树完全一致，理由：
+The output order is fixed: **`update` → `move`/`add` (new-tree pre-order per parent, child-index order within a parent) → `delete` (post-order)**. Applying in this order guarantees the final structure equals the new tree, because:
 
-1. **move 的目标父必然已存在**：move 由新父 P 的扫描发出，而 P 自身若是新增块，其 `add` 在 P 的父节点扫描时已发出（先序：祖父 → P → P 的孩子），故应用 move 时 P 已在树中。
-2. **add/move 的锚点必然存在**：锚点只能是稳定块（旧树幸存块），在 update/add/move 阶段始终存在。
-3. **同父内按索引从左到右应用后，兄弟顺序与新树一致**：每条 op 都把当前块插入到"其后第一个稳定兄弟"之前。归纳可证：处理完索引 i 后，孩子序列前 i+1 个位置上的块集合及其相对顺序均与新树一致——稳定块是分段的"隔板"，错位块和新块总是被放进正确的隔间，且同隔间内按处理顺序排列。
-4. **delete 放在最后**：所有 move 已把幸存块移出被删子树，删除不会误伤；被删块也不会是任何 add 的父或锚点（它们都不在新树中）。
+1. **A move's target parent always exists**: the move is emitted by new parent P's scan; if P is itself newly added, its `add` was emitted during P's parent's scan (pre-order: grandparent → P → P's children), so P already exists when the move applies.
+2. **Anchors of add/move always exist**: anchors can only be stable blocks (old-tree survivors), which exist throughout the update/add/move phase.
+3. **Applying in child-index order per parent yields the new sibling order**: every op inserts its block before "the first stable sibling after it". By induction, after processing index i the first i+1 positions match the new tree exactly — stable blocks act as fixed dividers, and displaced/new blocks fall into the correct compartment, ordered by processing order within it.
+4. **Deletes come last**: all moves have already extracted survived blocks out of deleted subtrees, and a deleted block can never be the parent or anchor of any add (they are absent from the new tree).
 
-一个最小例子——旧 `[A,B,C]` → 新 `[C,A,B]`：LCS = `[A,B]`（稳定），C 错位，锚点 A，仅 1 个 move：`{ move C, before A }`。
+Minimal example — old `[A,B,C]` → new `[C,A,B]`: LCS = `[A,B]` (stable), C is displaced anchored at A — a single move: `{ move C, before A }`.
 
-## 6. 子树 / 森林 / 外部 parentId 的处理
+## 6. Subtrees / forests / external parentIds
 
-- 根（或多根）的 `parentId` 指向树外时不参与树内结构，统一挂到虚拟超根；
-- 当 add/move 的目标是**树顶层**时，op 的 `parentId` 透传该 block 自身的外部 `parentId`；若没有，则使用哨兵值 `VIRTUAL_ROOT_ID`（`'__VIRTUAL_ROOT__'`）；
-- 新旧子树根 id 不同时：旧根 delete、新根 add（其 `parentId` 为外部父），原根下的幸存块经 move 换父到新根下——move 先于 delete，保证应用安全；
-- 顶层多根（森林）之间的重排同样由虚拟超根的 LCS 机制处理。
+- Roots' `parentId`s pointing outside the tree do not participate in the in-tree structure; they hang under the virtual super root;
+- When an add/move targets the **top level of the tree**, the op's `parentId` passes through the block's own external `parentId`; if absent, the sentinel `VIRTUAL_ROOT_ID` (`'__VIRTUAL_ROOT__'`) is used;
+- When old and new subtree roots differ: the old root is deleted, the new root added (with its external `parentId`), and survived descendants move under the new root — moves precede the delete, keeping application safe;
+- Reordering among multiple top-level roots (forests) is handled by the same LCS machinery on the virtual super root.
 
-## 7. 复杂度
+## 7. Complexity
 
-设 n 为树的大小（块数）：
+Let n be the tree size (number of blocks):
 
-| 阶段 | 复杂度 |
+| Phase | Complexity |
 |---|---|
-| 建树 + 幸存集 | O(n) |
-| update 扫描 | O(n · E)，E 为单次 equal 成本 |
-| 每个父节点的 LCS（Myers） | O((N+M)·D)，N/M 为该父的孩子数、D 为孩子序列的编辑距离 |
-| 锚点查找（可优化为一次逆扫） | 当前实现为每块向前线性扫，最坏 O(k²)（k 为单父孩子数） |
+| Build trees + survived set | O(n) |
+| update scan | O(n · E), E = cost of one `equal` call |
+| LCS per parent (Myers) | O((N+M)·D), N/M = child counts, D = edit distance of the child sequences |
+| Anchor lookup (optimizable to one reverse scan) | Currently a forward linear scan per block, worst-case O(k²) (k = children of one parent) |
 
-整体近似 **O(n · d)**，d 为平均结构扰动量，远优于把整个树打平做全局 diff 的方案（后者无法区分"移动"与"删除+新增"）。
+Overall roughly **O(n · d)** where d is the average structural disturbance — far better than flattening the whole tree into a global diff (which cannot distinguish "move" from "delete + add").
 
-## 8. 应用语义（`applyOps`）
+## 8. Application semantics (`applyOps`)
 
-`src/apply.ts` 提供参考实现，用于测试验证 round-trip：
+`src/apply.ts` is the reference implementation, used by tests for round-trip verification:
 
-- `update`：按 id 覆盖 props；
-- `move`：将块（含子树）从当前位置摘下，插入 `parentId` 下 `before` 前；`parentId` 解析不到时视为树顶层，保留外部 parentId；
-- `delete`：按 id 删除块及其子树（op 顺序保证此时子树内已无应幸存的块）；
-- `add`：在 `parentId` 下 `before` 前插入新块。
+- `update`: overwrite props by id;
+- `move`: detach the block (with subtree) and insert before `before` under `parentId`; an unresolvable `parentId` means tree top level, keeping the external parentId;
+- `delete`: remove the block and its subtree by id (op ordering guarantees no to-be-survived blocks remain inside);
+- `add`: insert the new block before `before` under `parentId`.
 
-**必须按输出顺序应用**。
+**Must be applied in output order.**
 
-## 9. LCS 是什么
+## 9. What is LCS?
 
-LCS = **Longest Common Subsequence（最长公共子序列）**：给定两个序列，找出同时是两者子序列的最长序列（子序列不要求连续，但保持相对顺序）。
+LCS = **Longest Common Subsequence**: the longest sequence that is a subsequence of both input sequences (subsequences keep relative order but need not be contiguous).
 
-在本算法中，LCS 用于**每个父节点的兄弟序列对齐**：命中的块（稳定块）相对顺序在新旧两轮中一致，视为"不用动"，充当锚点；不在 LCS 里的幸存块说明错位，发出 move。LCS 越长，需要移动的块越少——**move 数 = 孩子数 − |LCS|**，为该父的理论最小值。实现采用 Myers diff 算法（git diff 同款，O((N+M)·D)）。
+In this algorithm, LCS aligns **each parent's sibling sequences**: hit blocks (stable) keep their relative order across old and new, so they "don't move" and serve as anchors; survived blocks outside the LCS are displaced and emit moves. The longer the LCS, the fewer moves — **move count = children − |LCS|**, the per-parent theoretical minimum. Implemented with the Myers diff algorithm (the one git diff uses, O((N+M)·D)).
 
-## 10. 测试
+## 10. Tests
 
-- `test/diff.spec.ts`：42 个确定性用例，覆盖空树、无变化、update/add/delete/move 单类行为、同父重排（轮转/反转/部分错位）、跨父移动、子树与森林、根替换、删父留子、op 顺序不变量、异常输入；
-- `test/fuzz.spec.ts`：随机树 + 随机变异的 **round-trip 性质测试**——`apply(old, diff(old, new))` 必须与 `new` 完全一致，共 2000 组随机种子；
-- `test/random-test.ts` + `test/random.spec.ts`：**随机编辑操作序列** round-trip——随机生成树（随机完整树/子树，节点数 ∈ [minNodes, maxNodes]，默认 [300, 500]），再随机生成 n 条编辑操作（默认 [50, 100]）逐条叠加产生新树，校验 round-trip。生成器使用独立树模型（`GenTree`），不复用 `applyOps`，避免"生成与校验同源"掩盖 bug。
+- `test/diff.spec.ts`: 42 deterministic cases covering empty trees, no-change, each op category, same-parent reordering (rotation / reversal / partial displacement), cross-parent moves, subtrees & forests, root replacement, delete-parent-keep-child, op-order invariants, invalid inputs;
+- `test/fuzz.spec.ts`: random trees + random structural mutations as **round-trip property tests** — `apply(old, diff(old, new))` must exactly equal `new`; 2000 random seeds;
+- `test/random-test.ts` + `test/random.spec.ts`: **random edit-sequence** round-trip — generate a random tree (randomly a complete tree or a subtree, node count ∈ [minNodes, maxNodes], default [300, 500]), then n random edit operations (default [50, 100]) applied one by one to build the new tree, and verify the round-trip. The generator uses an independent tree model (`GenTree`) instead of `applyOps`, avoiding "same-origin generation and verification" masking bugs.
 
-随机测试脚本：
+Random test script:
 
 ```bash
-./scripts/random-test.sh                       # 100 次，每例 50~100 条操作，树 300~500 节点
-./scripts/random-test.sh 500                   # 500 次，其余默认
-./scripts/random-test.sh 200 10 30             # 200 次，每例 10~30 条操作
-./scripts/random-test.sh 100 50 100 1000 2000  # 100 次，树 1000~2000 节点
-./scripts/random-test.sh 1 50 100 300 500 42   # 复现 seed=42 的用例
+./scripts/random-test.sh                       # 100 runs, 50~100 ops each, trees of 300~500 nodes
+./scripts/random-test.sh 500                   # 500 runs, otherwise defaults
+./scripts/random-test.sh 200 10 30             # 200 runs, 10~30 ops each
+./scripts/random-test.sh 100 50 100 1000 2000  # 100 runs, trees of 1000~2000 nodes
+./scripts/random-test.sh 1 50 100 300 500 42   # reproduce the seed=42 case
 ```
 
-**pre-commit hook**：提交前自动运行全部测试 + 100 次随机测试（husky，`npm install` 后经 `prepare` 脚本自动启用）。
+**pre-commit hook**: automatically runs all tests plus 100 random tests before every commit (husky; enabled by the `prepare` script upon `npm install`).
 
-## 11. 可视化 demo
+## 11. Visual demo
 
-`demo/` 目录下是 Vue 3 + Vite 单页应用。**布局**：
+`src/demo/` contains a Vue 3 + Vite single-page app (English / 中文 switchable). **Layout**:
 
 ```
-┌─ 工具栏 ──────────────────────────────────────────────────────┐
+┌─ Toolbar ─────────────────────────────────────────────────────┐
 ├──────────────────────────────┬─────────────────────────────────┤
-│  旧树（动画区）               │  目标新树（静态）  ← 中间分隔条可拖 │
-│      [root]                 │      [root]                     │
-│     /  |  \                 │     /  |  \                     │
-│  [b1] [b2] [b3]             │  [b1] [b2] [b3]                 │
+│  Old tree (animated)         │  Target new tree (static)       │
+│      [root]                  │      [root]    ← draggable      │
+│     /  |  \                  │     /  |  \       splitter      │
+│  [b1] [b2] [b3]              │  [b1] [b2] [b3]                 │
 ├──────────────────────────────┴─────────────────────────────────┤
-│  随机生成的编辑动作（可点击回放）：单行横向 chips + 滚动条      │
-│  Diff 动作序列（可点击前进）：单行横向 chips + 滚动条          │
+│  Randomly generated editing actions (click to replay)         │
+│  Diff action sequence (click to advance)                       │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-- 工具栏填入**节点范围**（默认 3~10）与**动作数量**范围（默认 5~10），随机生成旧树与新树（`value` 为随机字符串）；
-- 两条动作序列均可点击回放：每条最前面有**状态 0**（回到初始旧树）；在一条序列应用过后点击另一条，会清空状态从旧树重新开始应用；
-- 动画：**新增** → 绿色闪烁 + 淡入放大；**删除** → 红色闪烁后消散；**修改** → 黄色两次闪烁；**移动** → 蓝色闪烁 + FLIP 平滑滑动（连线为 SVG line，同样走 FLIP）；闪烁全程不透明度保持 1，避免晃眼。
+- Enter a **node range** (default 3~10) and an **action count** range (default 5~10) in the toolbar to randomly generate the old tree and the new tree (values are random strings);
+- Both action strips are replayable: each starts with **state 0** (back to the initial old tree); clicking one strip after using the other resets and replays from the old tree;
+- Animations: **add** → green flash + fade-in scale; **delete** → red flash then dissolve; **update** → double yellow flash; **move** → blue flash + smooth FLIP sliding (SVG connector lines also FLIP); flashing keeps opacity at 1 throughout to avoid glare;
+- **i18n**: vue-i18n with a language dropdown (中文 / English) in the toolbar; the choice persists in localStorage.
 
 ```bash
-npm run demo                    # 开发模式：http://localhost:5173/
-npm run demo:build              # 生产构建到 dist-demo/
-npm run deploy:pages            # 构建并部署到 gh-pages 分支（GitHub Pages）
+npm run demo                    # dev mode: http://localhost:5173/
+npm run demo:build              # production build into dist-demo/
 ```
 
-## 12. 已知取舍
+### Automated deployment (GitHub Actions)
 
-- **move 数量的最优性是"逐父局部最优"**：每个父节点内错位块数 = 孩子数 − |LCS|，为该父的理论最小值；
-- LCS 的选取不唯一时（长度相同的多条 LCS），Myers 返回其中一条，op 内容可能不同，但均为正确解（round-trip 恒成立）；
-- 输入含环（`parentId` 互指成环）属非法输入，行为未定义。
+On every push to main, `.github/workflows/deploy-pages.yml` builds and deploys the demo to GitHub Pages: <https://stephenark30.github.io/block-diff/>. Manual triggering is also available via the Actions tab (workflow_dispatch).
+
+## 12. Known trade-offs
+
+- **Move-count optimality is per-parent local optimum**: displaced blocks per parent = children − |LCS|, the theoretical minimum for that parent;
+- When multiple maximal LCS choices exist, Myers returns one of them; op contents may differ across runs but all are correct (round-trip always holds);
+- Cyclic input (`parentId` forming a cycle) is invalid and behavior is undefined.

@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
-import { diffBlockTrees, applyOps, type IBlock, type DiffOp } from '../src/index';
+import { useI18n } from 'vue-i18n';
+import { diffBlockTrees, applyOps, type IBlock, type DiffOp } from '../index';
 import { randomTree, randomEdits, type P } from './generator';
 import { computeLayout, NODE_W, NODE_H } from './layout';
+import { persistLocale } from './i18n';
+
+const { t, locale } = useI18n();
+watch(locale, (l) => persistLocale(String(l)));
 
 type Effect = { kind: 'update' | 'move'; ids: Set<string> };
 /** 当前回放的序列：随机编辑动作（edit）/ diff 动作（diff） */
@@ -211,20 +216,18 @@ const newView = computed(() => (newTree.value ? buildView(newTree.value, null) :
 
 // ---------- 动作描述 ----------
 
-const opLabel: Record<DiffOp<P>['type'], string> = {
-  add: '增',
-  delete: '删',
-  update: '改',
-  move: '移',
-};
-
 function describeOp(op: DiffOp<P>): string {
-  const pos = op.type === 'add' || op.type === 'move' ? (op.before ? `${op.before} 前` : '末尾') : '';
+  const pos =
+    op.type === 'add' || op.type === 'move'
+      ? op.before
+        ? t('posBefore', { id: op.before })
+        : t('posEnd')
+      : '';
   switch (op.type) {
     case 'add':
       return `${op.id} → ${op.parentId} · ${pos}`;
     case 'delete':
-      return `${op.id}（含子树）`;
+      return `${op.id} ${t('subtree')}`;
     case 'update':
       return `${op.id} = "${op.props}"`;
     case 'move':
@@ -233,16 +236,16 @@ function describeOp(op: DiffOp<P>): string {
 }
 
 const statusText = computed(() => {
-  if (!oldTree.value) return '请生成树';
-  if (!newTree.value) return '请生成动作（随机编辑得到新树）';
-  if (mode.value === 'diff' && !diffOps.value) return '请点击 Diff';
+  if (!oldTree.value) return t('status.genTree');
+  if (!newTree.value) return t('status.genActions');
+  if (mode.value === 'diff' && !diffOps.value) return t('status.runDiff');
   const ops = mode.value === 'diff' ? diffOps.value : editOps.value;
-  const label = mode.value === 'diff' ? 'Diff' : '编辑';
+  const label = mode.value === 'diff' ? t('labelDiff') : t('labelEdit');
   const n = ops?.length ?? 0;
-  if (playing.value) return `${label}播放中 ${step.value + 1}/${n}`;
-  if (n === 0) return '无动作';
-  if (step.value >= n - 1) return `${label}动作完成 ${n}/${n}`;
-  return `${label}进度 ${step.value + 1}/${n}，点击下方动作前进`;
+  if (playing.value) return t('status.playing', { label, cur: step.value + 1, total: n });
+  if (n === 0) return mode.value === 'diff' ? t('status.identical') : t('status.noOps');
+  if (step.value >= n - 1) return t('status.done', { label, cur: n, total: n });
+  return t('status.progress', { label, cur: step.value + 1, total: n });
 });
 
 // 播放时当前序列的动作 chips 自动滚动跟随（横向）
@@ -282,24 +285,30 @@ function onSplitterUp() {
 <template>
   <div class="app" :class="{ 'col-resizing': dragging }">
     <header class="toolbar">
-      <h1 class="title">Block Tree Diff</h1>
+      <h1 class="title">{{ t('title') }}</h1>
       <div class="group">
-        <label>节点范围</label>
+        <label>{{ t('nodeRange') }}</label>
         <input v-model.number="minNodes" type="number" min="1" />
         <span class="tilde">~</span>
         <input v-model.number="maxNodes" type="number" min="1" />
-        <button class="btn" :disabled="playing" @click="genTree">随机生成树</button>
+        <button class="btn" :disabled="playing" @click="genTree">{{ t('genTree') }}</button>
       </div>
       <div class="group">
-        <label>动作数量</label>
+        <label>{{ t('actionCount') }}</label>
         <input v-model.number="minActions" type="number" min="0" />
         <span class="tilde">~</span>
         <input v-model.number="maxActions" type="number" min="0" />
-        <button class="btn" :disabled="!oldTree || playing" @click="genActions">随机生成动作</button>
+        <button class="btn" :disabled="!oldTree || playing" @click="genActions">{{ t('genActions') }}</button>
       </div>
       <div class="group">
-        <button class="btn primary" :disabled="!oldTree || !newTree || playing" @click="doDiff">Diff</button>
-        <button class="btn" :disabled="step < 0" @click="playTo(mode, -1)">重置</button>
+        <button class="btn primary" :disabled="!oldTree || !newTree || playing" @click="doDiff">{{ t('diff') }}</button>
+        <button class="btn" :disabled="step < 0" @click="playTo(mode, -1)">{{ t('reset') }}</button>
+      </div>
+      <div class="group lang-group">
+        <select v-model="locale" class="lang-select" :aria-label="t('language')">
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+        </select>
       </div>
       <div class="status">{{ statusText }}</div>
     </header>
@@ -308,10 +317,10 @@ function onSplitterUp() {
       <!-- 左：旧树（动画） -->
       <section class="panel" :style="{ flexBasis: leftPct + '%' }">
         <div class="panel-head">
-          旧树<span class="sub">点击下方动作前进</span>
+          {{ t('oldTree') }}<span class="sub">{{ t('oldTreeHint') }}</span>
         </div>
         <div class="scroll">
-          <div v-if="!oldTree" class="placeholder">填写节点范围，点击「随机生成树」开始</div>
+          <div v-if="!oldTree" class="placeholder">{{ t('oldTreePlaceholder') }}</div>
           <div
             v-else
             class="tree-wrap"
@@ -349,7 +358,7 @@ function onSplitterUp() {
       <div
         class="splitter"
         :class="{ dragging }"
-        title="拖动调整两侧宽度（双击复位）"
+        :title="t('splitterTip')"
         @pointerdown="onSplitterDown"
         @pointermove="onSplitterMove"
         @pointerup="onSplitterUp"
@@ -359,9 +368,9 @@ function onSplitterUp() {
 
       <!-- 右：目标新树（静态） -->
       <section class="panel target">
-        <div class="panel-head">目标新树</div>
+        <div class="panel-head">{{ t('targetTree') }}</div>
         <div class="scroll">
-          <div v-if="!newTree" class="placeholder">点击「随机生成动作」产生新树</div>
+          <div v-if="!newTree" class="placeholder">{{ t('targetPlaceholder') }}</div>
           <div
             v-else
             class="tree-wrap"
@@ -395,12 +404,16 @@ function onSplitterUp() {
       <!-- 上：随机生成的编辑动作（可回放） -->
       <section class="strip">
         <div class="strip-title">
-          随机生成的编辑动作{{ editOps.length ? `（${editOps.length} 条，产生新树用）` : '' }} —— 点击回放
+          {{
+            editOps.length
+              ? t('editStripTitle', { n: editOps.length })
+              : t('editStripTitleEmpty')
+          }}
         </div>
         <div ref="editChipsEl" class="chips">
           <button class="chip btn state0" :class="{ active: step < 0 }" @click="playTo('edit', -1)">
             <span class="c-idx">0</span>
-            <span class="c-desc">初始旧树</span>
+            <span class="c-desc">{{ t('state0') }}</span>
           </button>
           <button
             v-for="(op, i) in editOps"
@@ -411,24 +424,27 @@ function onSplitterUp() {
             @click="playTo('edit', i)"
           >
             <span class="c-idx">{{ i + 1 }}</span>
-            <span class="badge" :class="`t-${op.type}`">{{ opLabel[op.type] }}</span>
+            <span class="badge" :class="`t-${op.type}`">{{ t(`opLabel.${op.type}`) }}</span>
             <span class="c-desc">{{ describeOp(op) }}</span>
           </button>
-          <span v-if="editOps.length === 0" class="strip-empty">—</span>
+          <span v-if="editOps.length === 0" class="strip-empty">{{ t('stripEmpty') }}</span>
         </div>
       </section>
 
       <!-- 下：diff 动作序列（可回放） -->
       <section class="strip">
         <div class="strip-title">
-          Diff 动作序列{{ diffOps && diffOps.length ? `（${diffOps.length} 条）` : '' }} ——
-          点击任意动作，旧树前进到该动作执行后
+          {{
+            diffOps && diffOps.length
+              ? t('diffStripTitle', { n: diffOps.length })
+              : t('diffStripTitleEmpty')
+          }}
         </div>
         <div ref="diffChipsEl" class="chips">
           <template v-if="diffOps">
             <button class="chip btn state0" :class="{ active: step < 0 }" @click="playTo('diff', -1)">
               <span class="c-idx">0</span>
-              <span class="c-desc">初始旧树</span>
+              <span class="c-desc">{{ t('state0') }}</span>
             </button>
             <button
               v-for="(op, i) in diffOps"
@@ -439,12 +455,12 @@ function onSplitterUp() {
               @click="playTo('diff', i)"
             >
               <span class="c-idx">{{ i + 1 }}</span>
-              <span class="badge" :class="`t-${op.type}`">{{ opLabel[op.type] }}</span>
+              <span class="badge" :class="`t-${op.type}`">{{ t(`opLabel.${op.type}`) }}</span>
               <span class="c-desc">{{ describeOp(op) }}</span>
             </button>
-            <span v-if="diffOps.length === 0" class="strip-empty">两棵树完全相同，无动作</span>
+            <span v-if="diffOps.length === 0" class="strip-empty">{{ t('status.identical') }}</span>
           </template>
-          <span v-else class="strip-empty">尚未 Diff</span>
+          <span v-else class="strip-empty">{{ t('notDiffed') }}</span>
         </div>
       </section>
     </footer>
@@ -500,6 +516,21 @@ input[type='number'] {
   border-radius: 6px;
   font-size: 13px;
 }
+.lang-group {
+  margin-left: auto;
+}
+.lang-select {
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+.lang-select:hover {
+  border-color: #4f46e5;
+}
 .btn {
   padding: 6px 14px;
   border-radius: 8px;
@@ -528,7 +559,6 @@ input[type='number'] {
   color: #fff;
 }
 .status {
-  margin-left: auto;
   font-size: 13px;
   font-weight: 500;
   color: #4f46e5;

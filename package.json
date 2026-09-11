@@ -14,7 +14,6 @@
     "demo": "vite",
     "demo:build": "vite build",
     "demo:build:pages": "vite build --base=/block-diff/",
-    "deploy:pages": "vite build --base=/block-diff/ && bash scripts/deploy-pages.sh",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -26,6 +25,7 @@
     "typescript": "^5.5.4",
     "vite": "^5.4.21",
     "vitest": "^2.0.5",
-    "vue": "^3.5.42"
+    "vue": "^3.5.42",
+    "vue-i18n": "^11.4.2"
   }
 }
