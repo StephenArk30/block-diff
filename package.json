@@ -1,0 +1,22 @@
+{
+  "name": "block-diff",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Block tree diff algorithm producing add/delete/update/move ops",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:random": "bash scripts/random-test.sh"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.7",
+    "@types/node": "^20.14.0",
+    "lodash": "^4.17.21",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
