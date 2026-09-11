@@ -16,7 +16,8 @@ trap 'git worktree remove --force "$WORK" 2>/dev/null || rm -rf "$WORK"' EXIT
 if git show-ref --verify --quiet refs/heads/gh-pages; then
   git worktree add "$WORK" gh-pages
 else
-  git worktree add --orphan -b gh-pages "$WORK" >/dev/null
+  git worktree add --detach "$WORK" >/dev/null
+  (cd "$WORK" && git checkout --orphan gh-pages && git rm -rf -q . >/dev/null 2>&1 || true)
 fi
 
 # 同步构建产物
