@@ -1,0 +1,8 @@
+# pre-commit：全部测试 + 100 次随机 round-trip 测试，任一失败则阻止提交
+echo "==> [pre-commit] 运行全部测试用例..."
+npx vitest run || exit 1
+
+echo "==> [pre-commit] 运行 100 次随机测试..."
+bash scripts/random-test.sh 100 || exit 1
+
+echo "==> [pre-commit] 全部通过"

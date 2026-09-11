@@ -10,7 +10,7 @@
  * - 同一棵树内 block id 唯一。
  *
  * 输出 op 顺序：update → move/add（按新树先序逐父节点、同父内按新孩子顺序交错）→ delete（后序，子先于父）。
- * 应用方需按输出顺序应用（详见 docs/ALGORITHM.md）。
+ * 应用方需按输出顺序应用（详见 README.md 算法说明）。
  */
 
 export interface IBlock<T = unknown> {

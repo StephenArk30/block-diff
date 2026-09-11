@@ -10,13 +10,22 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:random": "bash scripts/random-test.sh"
+    "test:random": "bash scripts/random-test.sh",
+    "demo": "vite",
+    "demo:build": "vite build",
+    "demo:build:pages": "vite build --base=/block-diff/",
+    "deploy:pages": "vite build --base=/block-diff/ && bash scripts/deploy-pages.sh",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.7",
     "@types/node": "^20.14.0",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "husky": "^9.1.7",
     "lodash": "^4.17.21",
     "typescript": "^5.5.4",
-    "vitest": "^2.0.5"
+    "vite": "^5.4.21",
+    "vitest": "^2.0.5",
+    "vue": "^3.5.42"
   }
 }

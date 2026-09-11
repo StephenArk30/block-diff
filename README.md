@@ -1,24 +1,55 @@
-# Block Tree Diff 算法说明
+# block-diff
+
+Block tree diff 算法：给定新旧两棵 block tree，diff 出一系列操作 —— **add / delete / update / move**。
+
+- 输入为扁平 `IBlock[]`（父子关系由 `parentId` 关联），支持**子树 diff**（树根可带指向树外的 `parentId`）与森林；
+- `props` 比较由调用方注入 `equal` 函数；
+- 同父重排基于 **Myers LCS**，单父内 move 数为理论最小值；
+- 附带参考实现 `applyOps`（op 应用器）与可视化 demo。
+
+**在线 Demo**：https://stephenark30.github.io/block-diff/
+
+## 安装与使用
+
+```bash
+npm install
+npm test              # 全部测试（含 fuzz + 随机 round-trip）
+npm run demo          # 本地启动可视化 demo: http://localhost:5173
+```
+
+### API
+
+```ts
+import { diffBlockTrees, applyOps, type IBlock, type DiffOp } from './src/index';
+
+interface IBlock<T> { id: string; props: T; parentId?: string }
+
+const ops: DiffOp<MyProps>[] = diffBlockTrees(oldBlocks, newBlocks, {
+  equal: (a, b) => isEqual(a, b),   // props 深比较，由调用方注入
+});
+// op 类型：
+// add:    { type: 'add',    id, parentId, before?, block }  // 在 before 前插入（缺省 = 追加到末尾）
+// delete: { type: 'delete', id }
+// update: { type: 'update', id, props }
+// move:   { type: 'move',   id, parentId, before? }         // 移动 block（含子树）到 before 前
+
+const newBlocks2 = applyOps(oldBlocks, ops);  // 参考应用器（需按输出顺序应用）
+```
+
+---
+
+# 算法说明
 
 ## 1. 问题定义
 
-给定新旧两棵 block tree，计算把旧树变换为新树的最小操作序列：
-
-```ts
-interface IBlock<T> { id: string; props: T; parentId?: string }
-
-add:    { type: 'add',    id, parentId, before?, block }  // 在 before 前插入 block（before 缺省 = 追加到末尾）
-delete: { type: 'delete', id }
-update: { type: 'update', id, props }
-move:   { type: 'move',   id, parentId, before? }         // 移动 block（含子树）到 before 前
-```
+给定新旧两棵 block tree，计算把旧树变换为新树的操作序列。
 
 **输入约定**：
 
 - 每棵树以扁平的 `IBlock[]` 给出，父子关系由 `parentId` 关联；数组顺序即兄弟顺序；
 - 树可能只是某个更大文档的**子树**，根节点的 `parentId` 指向树外的真实父节点（如 `'page-1'`）；
 - 同一棵树内 `id` 唯一（重复会抛错）；
-- `props` 的比较完全依赖调用方注入的 `equal(a, b)` 函数（测试中使用 lodash `isEqual` 深比较）。
+- `props` 的比较完全依赖调用方注入的 `equal(a, b)` 函数。
 
 ## 2. 算法总览
 
@@ -32,9 +63,9 @@ move:   { type: 'move',   id, parentId, before? }         // 移动 block（含�
      由此子树 / 森林 / 单根三种输入被归一为同一种结构；
    - survived = 新旧两树 id 的交集（"幸存"节点）。
 
-② 逐类计算 op（见 §4）
+② 逐类计算 op
    update  ：新树先序扫描幸存节点，props 不 equal 则发 update；
-   move/add：按新树先序逐个父节点处理，同父内按新孩子顺序从左到右（核心，见 §4.2）；
+   move/add：按新树先序逐个父节点处理，同父内按新孩子顺序从左到右；
    delete  ：旧树后序扫描，未幸存节点发 delete（子先于父）。
 
 ③ 输出顺序：update → move/add（交错）→ delete
@@ -118,13 +149,19 @@ move:   { type: 'move',   id, parentId, before? }         // 移动 block（含�
 
 **必须按输出顺序应用**。
 
-## 9. 测试
+## 9. LCS 是什么
+
+LCS = **Longest Common Subsequence（最长公共子序列）**：给定两个序列，找出同时是两者子序列的最长序列（子序列不要求连续，但保持相对顺序）。
+
+在本算法中，LCS 用于**每个父节点的兄弟序列对齐**：命中的块（稳定块）相对顺序在新旧两轮中一致，视为"不用动"，充当锚点；不在 LCS 里的幸存块说明错位，发出 move。LCS 越长，需要移动的块越少——**move 数 = 孩子数 − |LCS|**，为该父的理论最小值。实现采用 Myers diff 算法（git diff 同款，O((N+M)·D)）。
+
+## 10. 测试
 
 - `test/diff.spec.ts`：42 个确定性用例，覆盖空树、无变化、update/add/delete/move 单类行为、同父重排（轮转/反转/部分错位）、跨父移动、子树与森林、根替换、删父留子、op 顺序不变量、异常输入；
-- `test/fuzz.spec.ts`：随机树 + 随机变异（改 props / 删块上提 / 加块 / 换父 / 乱序）的 **round-trip 性质测试**——`apply(old, diff(old, new))` 必须与 `new` 完全一致（结构、顺序、props），共 2000 组随机种子；另含"相同输入产出空 ops"、"单元素轮转仅 1 个 move"等最小性抽检；
-- `test/random-test.ts` + `test/random.spec.ts`：**随机编辑操作序列** round-trip——每次随机生成一棵树（随机完整树/子树，节点数 ∈ [minNodes, maxNodes]，默认 [300, 500]），再随机生成 n 条编辑操作（n ∈ [minOps, maxOps]，默认 [50, 100]）逐条叠加产生新树，最后校验 `apply(old, diff(old, new)) ≡ new`。生成器使用独立树模型（`GenTree`，有序孩子列表直接 splice），不复用 `applyOps`，避免"生成与校验同源"掩盖 bug。
+- `test/fuzz.spec.ts`：随机树 + 随机变异的 **round-trip 性质测试**——`apply(old, diff(old, new))` 必须与 `new` 完全一致，共 2000 组随机种子；
+- `test/random-test.ts` + `test/random.spec.ts`：**随机编辑操作序列** round-trip——随机生成树（随机完整树/子树，节点数 ∈ [minNodes, maxNodes]，默认 [300, 500]），再随机生成 n 条编辑操作（默认 [50, 100]）逐条叠加产生新树，校验 round-trip。生成器使用独立树模型（`GenTree`），不复用 `applyOps`，避免"生成与校验同源"掩盖 bug。
 
-随机测试脚本（`scripts/random-test.sh`，参数：次数 / minOps / maxOps / minNodes / maxNodes / seed）：
+随机测试脚本：
 
 ```bash
 ./scripts/random-test.sh                       # 100 次，每例 50~100 条操作，树 300~500 节点
@@ -132,11 +169,39 @@ move:   { type: 'move',   id, parentId, before? }         // 移动 block（含�
 ./scripts/random-test.sh 200 10 30             # 200 次，每例 10~30 条操作
 ./scripts/random-test.sh 100 50 100 1000 2000  # 100 次，树 1000~2000 节点
 ./scripts/random-test.sh 1 50 100 300 500 42   # 复现 seed=42 的用例
-# 或: npm run test:random（不传参时默认 100 次）
 ```
 
-## 10. 已知取舍
+**pre-commit hook**：提交前自动运行全部测试 + 100 次随机测试（husky，`npm install` 后经 `prepare` 脚本自动启用）。
 
-- **move 数量的最优性是"逐父局部最优"**：每个父节点内错位块数 = 孩子数 − |LCS|，为该父的理论最小值；但跨父的整体最优（如通过移动公共祖先来减少子块移动）不在目标内——块树的块不可合并/拆分，此场景不存在；
+## 11. 可视化 demo
+
+`demo/` 目录下是 Vue 3 + Vite 单页应用。**布局**：
+
+```
+┌─ 工具栏 ──────────────────────────────────────────────────────┐
+├──────────────────────────────┬─────────────────────────────────┤
+│  旧树（动画区）               │  目标新树（静态）  ← 中间分隔条可拖 │
+│      [root]                 │      [root]                     │
+│     /  |  \                 │     /  |  \                     │
+│  [b1] [b2] [b3]             │  [b1] [b2] [b3]                 │
+├──────────────────────────────┴─────────────────────────────────┤
+│  随机生成的编辑动作（可点击回放）：单行横向 chips + 滚动条      │
+│  Diff 动作序列（可点击前进）：单行横向 chips + 滚动条          │
+└────────────────────────────────────────────────────────────────┘
+```
+
+- 工具栏填入**节点范围**（默认 3~10）与**动作数量**范围（默认 5~10），随机生成旧树与新树（`value` 为随机字符串）；
+- 两条动作序列均可点击回放：每条最前面有**状态 0**（回到初始旧树）；在一条序列应用过后点击另一条，会清空状态从旧树重新开始应用；
+- 动画：**新增** → 绿色闪烁 + 淡入放大；**删除** → 红色闪烁后消散；**修改** → 黄色两次闪烁；**移动** → 蓝色闪烁 + FLIP 平滑滑动（连线为 SVG line，同样走 FLIP）；闪烁全程不透明度保持 1，避免晃眼。
+
+```bash
+npm run demo                    # 开发模式：http://localhost:5173/
+npm run demo:build              # 生产构建到 dist-demo/
+npm run deploy:pages            # 构建并部署到 gh-pages 分支（GitHub Pages）
+```
+
+## 12. 已知取舍
+
+- **move 数量的最优性是"逐父局部最优"**：每个父节点内错位块数 = 孩子数 − |LCS|，为该父的理论最小值；
 - LCS 的选取不唯一时（长度相同的多条 LCS），Myers 返回其中一条，op 内容可能不同，但均为正确解（round-trip 恒成立）；
 - 输入含环（`parentId` 互指成环）属非法输入，行为未定义。
