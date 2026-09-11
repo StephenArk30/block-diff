@@ -5,7 +5,7 @@ English | [简体中文](./README.cn.md)
 A block tree diff algorithm: given an old and a new block tree, produce a sequence of operations — **add / delete / update / move**.
 
 - Input is a flat `IBlock[]` (parent-child relations via `parentId`); supports **subtree diff** (tree roots may carry a `parentId` pointing outside the tree) and forests;
-- `props` comparison is injected by the caller via an `equal` function;
+- `value` comparison is injected by the caller via an `equal` function;
 - Same-parent reordering is based on **Myers LCS**; the number of moves per parent is the theoretical minimum;
 - Ships with a reference applier `applyOps` and an interactive visual demo (English / 中文).
 
@@ -24,15 +24,15 @@ npm run demo          # run the visual demo locally: http://localhost:5173
 ```ts
 import { diffBlockTrees, applyOps, type IBlock, type DiffOp } from './src/index';
 
-interface IBlock<T> { id: string; props: T; parentId?: string }
+interface IBlock<T> { id: string; value: T; parentId?: string }
 
 const ops: DiffOp<MyProps>[] = diffBlockTrees(oldBlocks, newBlocks, {
-  equal: (a, b) => isEqual(a, b),   // deep comparison of props, injected by the caller
+  equal: (a, b) => isEqual(a, b),   // deep comparison of value, injected by the caller
 });
 // Op types:
 // add:    { type: 'add',    id, parentId, before?, block }  // insert before `before` (omitted = append at end)
 // delete: { type: 'delete', id }
-// update: { type: 'update', id, props }
+// update: { type: 'update', id, value }
 // move:   { type: 'move',   id, parentId, before? }         // move block (with subtree) before `before`
 
 const newBlocks2 = applyOps(oldBlocks, ops);  // reference applier (must apply in output order)
@@ -51,7 +51,7 @@ Given an old and a new block tree, compute a minimal sequence of operations tran
 - Each tree is given as a flat `IBlock[]`; parent-child relations are expressed via `parentId`; array order defines sibling order;
 - A tree may be a **subtree** of a larger document — its root's `parentId` points to the real parent outside the tree (e.g. `'page-1'`);
 - Block `id`s are unique within a tree (duplicates throw);
-- `props` comparison relies entirely on the caller-provided `equal(a, b)`.
+- `value` comparison relies entirely on the caller-provided `equal(a, b)`.
 
 ## 2. Overview
 
@@ -67,7 +67,7 @@ The algorithm runs in three phases producing `update`, then `move`/`add` (interl
    - survived = intersection of ids of the two trees.
 
 ② Per-category op computation
-   update  : pre-order scan of the new tree; emit update when props are not equal;
+   update  : pre-order scan of the new tree; emit update when value are not equal;
    move/add: per-parent processing in new-tree pre-order, left-to-right within a parent;
    delete  : post-order scan of the old tree; emit delete for non-survived blocks
              (children before parents).
@@ -90,7 +90,7 @@ The algorithm runs in three phases producing `update`, then `move`/`add` (interl
 
 ### 4.1 update
 
-Pre-order traversal of the new tree; for every survived node call `equal(old.props, new.props)` and emit `{ update, id, props }` when unequal. Independent of structure, so it can run first.
+Pre-order traversal of the new tree; for every survived node call `equal(old.value, new.value)` and emit `{ update, id, value }` when unequal. Independent of structure, so it can run first.
 
 ### 4.2 move / add (the core)
 
@@ -146,7 +146,7 @@ Overall roughly **O(n · d)** where d is the average structural disturbance — 
 
 `src/apply.ts` is the reference implementation, used by tests for round-trip verification:
 
-- `update`: overwrite props by id;
+- `update`: overwrite value by id;
 - `move`: detach the block (with subtree) and insert before `before` under `parentId`; an unresolvable `parentId` means tree top level, keeping the external parentId;
 - `delete`: remove the block and its subtree by id (op ordering guarantees no to-be-survived blocks remain inside);
 - `add`: insert the new block before `before` under `parentId`.

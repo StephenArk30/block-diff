@@ -38,17 +38,17 @@ function randomBlocks(rng: () => number, count: number): IBlock<P>[] {
         : rng() < 0.5
           ? 'ext'
           : undefined;
-    blocks.push({ id, props: { v: Math.floor(rng() * 10) }, parentId: parent });
+    blocks.push({ id, value: { v: Math.floor(rng() * 10) }, parentId: parent });
   }
   return shuffle(blocks, rng);
 }
 
-/** 随机变异：改 props / 删块(子块上提) / 加块 / 换父 / 乱序 */
+/** 随机变异：改 value / 删块(子块上提) / 加块 / 换父 / 乱序 */
 function mutateBlocks(rng: () => number, blocks: IBlock<P>[]): IBlock<P>[] {
-  let cur: IBlock<P>[] = blocks.map((b) => ({ ...b, props: { ...b.props } }));
+  let cur: IBlock<P>[] = blocks.map((b) => ({ ...b, value: { ...b.value } }));
 
-  // 1. 随机改 props
-  for (const b of cur) if (rng() < 0.3) b.props.v = Math.floor(rng() * 10);
+  // 1. 随机改 value
+  for (const b of cur) if (rng() < 0.3) b.value.v = Math.floor(rng() * 10);
 
   // 2. 随机删除若干块，其子块沿父链上提到第一个未删祖先
   const toDelete = new Set(cur.filter(() => rng() < 0.25).map((b) => b.id));
@@ -75,7 +75,7 @@ function mutateBlocks(rng: () => number, blocks: IBlock<P>[]): IBlock<P>[] {
         : rng() < 0.5
           ? 'ext'
           : undefined;
-    cur.push({ id, props: { v: Math.floor(rng() * 10) }, parentId: parent });
+    cur.push({ id, value: { v: Math.floor(rng() * 10) }, parentId: parent });
   }
 
   // 4. 随机换父（目标须为存活块/外部，且不得使当前块成为目标的祖先，保证无环）
@@ -108,7 +108,7 @@ function mutateBlocks(rng: () => number, blocks: IBlock<P>[]): IBlock<P>[] {
   return shuffle(cur, rng);
 }
 
-function serialize(blocks: IBlock<P>[]): Array<{ id: string; parentId?: string; props: P }> {
+function serialize(blocks: IBlock<P>[]): Array<{ id: string; parentId?: string; value: P }> {
   const ids = new Set(blocks.map((b) => b.id));
   const kids = new Map<string | null, IBlock<P>[]>();
   for (const b of blocks) {
@@ -116,10 +116,10 @@ function serialize(blocks: IBlock<P>[]): Array<{ id: string; parentId?: string; 
     if (!kids.has(p)) kids.set(p, []);
     kids.get(p)!.push(b);
   }
-  const out: Array<{ id: string; parentId?: string; props: P }> = [];
+  const out: Array<{ id: string; parentId?: string; value: P }> = [];
   const walk = (p: string | null): void => {
     for (const b of kids.get(p) ?? []) {
-      out.push({ id: b.id, parentId: p ?? undefined, props: b.props });
+      out.push({ id: b.id, parentId: p ?? undefined, value: b.value });
       walk(b.id);
     }
   };
@@ -158,7 +158,7 @@ describe('fuzz: 随机 round-trip 性质测试', () => {
       const rng = makeRng(seed);
       const tree = randomBlocks(rng, 5 + Math.floor(rng() * 15));
       expect(diffBlockTrees(tree, tree, { equal: isEqual })).toEqual([]);
-      // 浅拷贝（props 引用相同）也应为空
+      // 浅拷贝（value 引用相同）也应为空
       expect(diffBlockTrees(tree, tree.map((b) => ({ ...b })), { equal: isEqual })).toEqual([]);
     }
   });
@@ -167,8 +167,8 @@ describe('fuzz: 随机 round-trip 性质测试', () => {
     for (let seed = 2000; seed < 2050; seed++) {
       const rng = makeRng(seed);
       const n = 3 + Math.floor(rng() * 8);
-      const oldB: IBlock<P>[] = [{ id: 'R', props: { v: 0 }, parentId: 'ext' }];
-      for (let i = 0; i < n; i++) oldB.push({ id: `c${i}`, props: { v: i }, parentId: 'R' });
+      const oldB: IBlock<P>[] = [{ id: 'R', value: { v: 0 }, parentId: 'ext' }];
+      for (let i = 0; i < n; i++) oldB.push({ id: `c${i}`, value: { v: i }, parentId: 'R' });
       // 轮转：把第一个移到末尾 → 仅 1 个 move
       const rotated = [oldB[0], ...oldB.slice(2), oldB[1]];
       const ops = diffBlockTrees(oldB, rotated, { equal: isEqual });

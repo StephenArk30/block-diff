@@ -15,7 +15,7 @@
 
 export interface IBlock<T = unknown> {
   id: string;
-  props: T;
+  value: T;
   parentId?: string;
 }
 
@@ -36,7 +36,7 @@ export interface DeleteOp {
 export interface UpdateOp<T = unknown> {
   type: 'update';
   id: string;
-  props: T;
+  value: T;
 }
 
 export interface MoveOp {
@@ -49,7 +49,7 @@ export interface MoveOp {
 export type DiffOp<T = unknown> = AddOp<T> | DeleteOp | UpdateOp<T> | MoveOp;
 
 export interface DiffOptions<T> {
-  /** props 深比较，相等返回 true */
+  /** value 深比较，相等返回 true */
   equal: (a: T, b: T) => boolean;
 }
 
@@ -68,7 +68,7 @@ function buildTree<T>(blocks: IBlock<T>[]): { root: Node<T>; nodes: Map<string, 
     if (nodes.has(b.id)) throw new Error(`Duplicate block id: ${b.id}`);
     nodes.set(b.id, { block: b, parent: null, children: [] });
   }
-  const root: Node<T> = { block: { id: VIRTUAL_ROOT_ID, props: null as T }, parent: null, children: [] };
+  const root: Node<T> = { block: { id: VIRTUAL_ROOT_ID, value: null as T }, parent: null, children: [] };
   for (const b of blocks) {
     const node = nodes.get(b.id)!;
     const parent = b.parentId != null && nodes.has(b.parentId) ? nodes.get(b.parentId)! : root;
@@ -160,7 +160,7 @@ export function lcsPairs(a: readonly string[], b: readonly string[]): Array<[num
  *
  * @param oldBlocks 旧树（扁平 block 数组；根可带指向树外的 parentId）
  * @param newBlocks 新树（同上）
- * @param options.equal props 深比较函数
+ * @param options.equal value 深比较函数
  * @returns DiffOp 数组，顺序为：update（新树先序）→ move → delete（旧树后序，子先于父）→ add（新树先序，父先于子）
  */
 export function diffBlockTrees<T>(
@@ -181,13 +181,13 @@ export function diffBlockTrees<T>(
   const structural: DiffOp<T>[] = [];
   const deletes: DeleteOp[] = [];
 
-  // ---------- update：新树先序，幸存节点 props 变化 ----------
+  // ---------- update：新树先序，幸存节点 value 变化 ----------
   for (const node of preOrder(newTree.root)) {
     if (node === newTree.root) continue;
     const id = node.block.id;
     if (!survived.has(id)) continue;
-    if (!equal(oldTree.nodes.get(id)!.block.props, node.block.props)) {
-      updates.push({ type: 'update', id, props: node.block.props });
+    if (!equal(oldTree.nodes.get(id)!.block.value, node.block.value)) {
+      updates.push({ type: 'update', id, value: node.block.value });
     }
   }
 

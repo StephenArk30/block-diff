@@ -3,7 +3,7 @@
  * 主要用于测试验证（round-trip property），同时说明各 op 的语义。
  *
  * 应用语义：
- * - update: 按 id 更新 props
+ * - update: 按 id 更新 value
  * - move:   把 block（含子树）从当前位置摘出，插入到 parentId 下 before 之前（before 缺省追加到末尾）
  * - delete: 按 id 删除该 block（含其子树）
  * - add:    在 parentId 下 before 之前插入新 block（before 缺省追加到末尾）
@@ -22,7 +22,7 @@ interface TNode<T> {
 }
 
 export function applyOps<T>(oldBlocks: IBlock<T>[], ops: DiffOp<T>[]): IBlock<T>[] {
-  const root: TNode<T> = { block: { id: VIRTUAL_ROOT_ID, props: null as T }, children: [] };
+  const root: TNode<T> = { block: { id: VIRTUAL_ROOT_ID, value: null as T }, children: [] };
   const nodes = new Map<string, TNode<T>>();
 
   /** 解析目标父：树内块 → 该块；VIRTUAL_ROOT 或外部 id → 虚拟根（记录外部 id） */
@@ -80,7 +80,7 @@ export function applyOps<T>(oldBlocks: IBlock<T>[], ops: DiffOp<T>[]): IBlock<T>
       case 'update': {
         const node = nodes.get(op.id);
         if (!node) throw new Error(`applyOps: update target not found: ${op.id}`);
-        node.block.props = op.props;
+        node.block.value = op.value;
         break;
       }
       case 'move': {

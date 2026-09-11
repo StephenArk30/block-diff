@@ -5,27 +5,28 @@
  */
 
 import { applyOps, type IBlock, type DiffOp } from '../index';
+import { faker } from '@faker-js/faker/locale/en';
 
 export type P = string;
 
 const randInt = (lo: number, hi: number): number => lo + Math.floor(Math.random() * (hi - lo + 1));
 const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-const CHARS = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
+/** 随机生成有意义的英文词句（1~4 个词，faker 真实词库） */
 export function randomValue(): string {
-  const len = randInt(4, 10);
-  let s = '';
-  for (let i = 0; i < len; i++) s += CHARS[Math.floor(Math.random() * CHARS.length)];
-  return s;
+  const r = Math.random();
+  if (r < 0.25) return faker.word.noun();
+  if (r < 0.55) return `${faker.word.adjective()} ${faker.word.noun()}`;
+  if (r < 0.85) return `the ${faker.word.adjective()} ${faker.word.noun()}`;
+  return `${faker.word.verb()} the ${faker.word.adjective()} ${faker.word.noun()}`;
 }
 
 /** 随机生成一棵完整树（单根，其余块随机挂到已有块下） */
 export function randomTree(minNodes: number, maxNodes: number): IBlock<P>[] {
   const n = Math.max(1, randInt(minNodes, maxNodes));
-  const blocks: IBlock<P>[] = [{ id: 'root', props: randomValue() }];
+  const blocks: IBlock<P>[] = [{ id: 'root', value: randomValue() }];
   for (let i = 1; i < n; i++) {
-    blocks.push({ id: `b${i}`, props: randomValue(), parentId: pick(blocks).id });
+    blocks.push({ id: `b${i}`, value: randomValue(), parentId: pick(blocks).id });
   }
   return blocks;
 }
@@ -68,14 +69,14 @@ function genAdd(st: Snap, id: string): DiffOp<P> {
   const parentId = pick(st.all).id;
   const siblings = st.childrenOf.get(parentId) ?? [];
   const before = siblings.length > 0 && Math.random() < 0.7 ? pick(siblings).id : undefined;
-  return { type: 'add', id, parentId, before, block: { id, props: randomValue(), parentId } };
+  return { type: 'add', id, parentId, before, block: { id, value: randomValue(), parentId } };
 }
 
 function genUpdate(st: Snap): DiffOp<P> {
   const b = pick(st.all);
   let v = randomValue();
-  for (let i = 0; i < 5 && v === b.props; i++) v = randomValue();
-  return { type: 'update', id: b.id, props: v };
+  for (let i = 0; i < 5 && v === b.value; i++) v = randomValue();
+  return { type: 'update', id: b.id, value: v };
 }
 
 function genDelete(st: Snap): DiffOp<P> | null {

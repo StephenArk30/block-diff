@@ -5,7 +5,7 @@
 Block tree diff 算法：给定新旧两棵 block tree，diff 出一系列操作 —— **add / delete / update / move**。
 
 - 输入为扁平 `IBlock[]`（父子关系由 `parentId` 关联），支持**子树 diff**（树根可带指向树外的 `parentId`）与森林；
-- `props` 比较由调用方注入 `equal` 函数；
+- `value` 比较由调用方注入 `equal` 函数；
 - 同父重排基于 **Myers LCS**，单父内 move 数为理论最小值；
 - 附带参考实现 `applyOps`（op 应用器）与可视化 demo（中英双语）。
 
@@ -24,15 +24,15 @@ npm run demo          # 本地启动可视化 demo: http://localhost:5173
 ```ts
 import { diffBlockTrees, applyOps, type IBlock, type DiffOp } from './src/index';
 
-interface IBlock<T> { id: string; props: T; parentId?: string }
+interface IBlock<T> { id: string; value: T; parentId?: string }
 
 const ops: DiffOp<MyProps>[] = diffBlockTrees(oldBlocks, newBlocks, {
-  equal: (a, b) => isEqual(a, b),   // props 深比较，由调用方注入
+  equal: (a, b) => isEqual(a, b),   // value 深比较，由调用方注入
 });
 // op 类型：
 // add:    { type: 'add',    id, parentId, before?, block }  // 在 before 前插入（缺省 = 追加到末尾）
 // delete: { type: 'delete', id }
-// update: { type: 'update', id, props }
+// update: { type: 'update', id, value }
 // move:   { type: 'move',   id, parentId, before? }         // 移动 block（含子树）到 before 前
 
 const newBlocks2 = applyOps(oldBlocks, ops);  // 参考应用器（需按输出顺序应用）
@@ -51,7 +51,7 @@ const newBlocks2 = applyOps(oldBlocks, ops);  // 参考应用器（需按输出�
 - 每棵树以扁平的 `IBlock[]` 给出，父子关系由 `parentId` 关联；数组顺序即兄弟顺序；
 - 树可能只是某个更大文档的**子树**，根节点的 `parentId` 指向树外的真实父节点（如 `'page-1'`）；
 - 同一棵树内 `id` 唯一（重复会抛错）；
-- `props` 的比较完全依赖调用方注入的 `equal(a, b)` 函数。
+- `value` 的比较完全依赖调用方注入的 `equal(a, b)` 函数。
 
 ## 2. 算法总览
 
@@ -66,7 +66,7 @@ const newBlocks2 = applyOps(oldBlocks, ops);  // 参考应用器（需按输出�
    - survived = 新旧两树 id 的交集（"幸存"节点）。
 
 ② 逐类计算 op
-   update  ：新树先序扫描幸存节点，props 不 equal 则发 update；
+   update  ：新树先序扫描幸存节点，value 不 equal 则发 update；
    move/add：按新树先序逐个父节点处理，同父内按新孩子顺序从左到右；
    delete  ：旧树后序扫描，未幸存节点发 delete（子先于父）。
 
@@ -88,7 +88,7 @@ const newBlocks2 = applyOps(oldBlocks, ops);  // 参考应用器（需按输出�
 
 ### 4.1 update
 
-对新树做先序遍历，每个幸存节点调用 `equal(old.props, new.props)`，不相等则发 `{ update, id, props: 新props }`。与结构无关，可独立先行。
+对新树做先序遍历，每个幸存节点调用 `equal(old.value, new.value)`，不相等则发 `{ update, id, value: 新value }`。与结构无关，可独立先行。
 
 ### 4.2 move / add（算法核心）
 
@@ -144,7 +144,7 @@ const newBlocks2 = applyOps(oldBlocks, ops);  // 参考应用器（需按输出�
 
 `src/apply.ts` 提供参考实现，用于测试验证 round-trip：
 
-- `update`：按 id 覆盖 props；
+- `update`：按 id 覆盖 value；
 - `move`：将块（含子树）从当前位置摘下，插入 `parentId` 下 `before` 前；`parentId` 解析不到时视为树顶层，保留外部 parentId；
 - `delete`：按 id 删除块及其子树（op 顺序保证此时子树内已无应幸存的块）；
 - `add`：在 `parentId` 下 `before` 前插入新块。

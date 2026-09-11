@@ -194,7 +194,7 @@ function buildView(list: IBlock<P>[], eff: Effect | null): TreeView {
     const p = pos.get(b.id) ?? { x: 0, y: 0 };
     return {
       id: b.id,
-      value: b.props,
+      value: b.value,
       left: Math.round(p.x - NODE_W / 2),
       top: p.y,
       cls: eff && eff.ids.has(b.id) ? (eff.kind === 'update' ? 'flash-update' : 'flash-move') : '',
@@ -229,7 +229,7 @@ function describeOp(op: DiffOp<P>): string {
     case 'delete':
       return `${op.id} ${t('subtree')}`;
     case 'update':
-      return `${op.id} = "${op.props}"`;
+      return `${op.id} = "${op.value}"`;
     case 'move':
       return `${op.id} → ${op.parentId} · ${pos}`;
   }

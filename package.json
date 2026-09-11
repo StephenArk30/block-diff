@@ -17,6 +17,7 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.6.0",
     "@types/lodash": "^4.17.7",
     "@types/node": "^20.14.0",
     "@vitejs/plugin-vue": "^5.2.4",

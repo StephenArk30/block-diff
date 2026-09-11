@@ -7,7 +7,7 @@
  * 2. 随机生成 n 条编辑操作（n ∈ [minOps, maxOps]，默认 [50, 100]），
  *    逐条应用到树上（操作叠加，模拟真实编辑历史），得到新树；
  * 3. 调用 diffBlockTrees(旧树, 新树) 得到 action 序列；
- * 4. 用 applyOps 把 action 应用到旧树，断言结果与新树完全一致（结构 + 顺序 + props）。
+ * 4. 用 applyOps 把 action 应用到旧树，断言结果与新树完全一致（结构 + 顺序 + value）。
  *
  * 关键设计：生成器使用独立的树模型（GenTree，有序孩子列表 + 直接 splice），
  * 不复用 applyOps —— 避免"新树的产生"与"校验的应用器"同源而互相掩盖 bug。
@@ -57,7 +57,7 @@ const pick = <T>(rng: () => number, arr: T[]): T => arr[Math.floor(rng() * arr.l
 const randInt = (rng: () => number, lo: number, hi: number): number =>
   lo + Math.floor(rng() * (hi - lo + 1));
 
-function randomProps(rng: () => number): P {
+function randomValue(rng: () => number): P {
   const p: P = { v: Math.floor(rng() * 100) };
   if (rng() < 0.3) p.tag = `t${Math.floor(rng() * 5)}`;
   return p;
@@ -67,7 +67,7 @@ function randomProps(rng: () => number): P {
 
 class GenTree {
   /** id -> 节点数据；parentId 为 null 表示顶层，external 为顶层块的外部 parentId */
-  private nodes = new Map<string, { props: P; parentId: string | null; external?: string }>();
+  private nodes = new Map<string, { value: P; parentId: string | null; external?: string }>();
   /** 父 -> 有序孩子列表；null 为顶层 */
   private childrenOf = new Map<string | null, string[]>();
 
@@ -106,14 +106,14 @@ class GenTree {
     return out;
   }
 
-  add(id: string, parentId: string | null, props: P, before: string | undefined, external?: string): void {
-    this.nodes.set(id, { props, parentId, external: parentId === null ? external : undefined });
+  add(id: string, parentId: string | null, value: P, before: string | undefined, external?: string): void {
+    this.nodes.set(id, { value, parentId, external: parentId === null ? external : undefined });
     if (!this.childrenOf.has(id)) this.childrenOf.set(id, []);
     this.insert(this.childrenOf.get(parentId)!, id, before);
   }
 
-  update(id: string, props: P): void {
-    this.nodes.get(id)!.props = props;
+  update(id: string, value: P): void {
+    this.nodes.get(id)!.value = value;
   }
 
   /** 删除块及其整个子树 */
@@ -150,7 +150,7 @@ class GenTree {
     const walk = (p: string | null): void => {
       for (const id of this.childrenOf.get(p) ?? []) {
         const n = this.nodes.get(id)!;
-        out.push({ id, props: n.props, parentId: n.parentId ?? n.external });
+        out.push({ id, value: n.value, parentId: n.parentId ?? n.external });
         walk(id);
       }
     };
@@ -181,7 +181,7 @@ function genAddOp(rng: () => number, tree: GenTree, mode: Mode, id: string, forc
   // 插入位置：目标父当前孩子中的随机锚点（70%）或追加（30%）
   const siblings = tree.children(parentId);
   const before = siblings.length > 0 && rng() < 0.7 ? pick(rng, siblings) : undefined;
-  tree.add(id, parentId, randomProps(rng), before, external);
+  tree.add(id, parentId, randomValue(rng), before, external);
   const target = parentId ?? `(top${external ? ':' + external : ''})`;
   return `add ${id} -> ${target}${before ? ` before ${before}` : ' append'}`;
 }
@@ -196,9 +196,9 @@ function tryGenDelete(rng: () => number, tree: GenTree, mode: Mode): string | nu
 
 function tryGenUpdate(rng: () => number, tree: GenTree): string {
   const id = pick(rng, tree.ids());
-  const props = randomProps(rng);
-  tree.update(id, props);
-  return `update ${id} -> v=${props.v}`;
+  const value = randomValue(rng);
+  tree.update(id, value);
+  return `update ${id} -> v=${value.v}`;
 }
 
 function tryGenMove(rng: () => number, tree: GenTree, mode: Mode): string | null {
@@ -288,7 +288,7 @@ export function generateRandomCase(rng: () => number, opts: GenCaseOptions): Ran
 // ---------- round-trip 校验 ----------
 
 /** 规范化：先序 + 树内有效 parentId，便于深比较 */
-function serializeForCompare(blocks: IBlock<P>[]): Array<{ id: string; parentId?: string; props: P }> {
+function serializeForCompare(blocks: IBlock<P>[]): Array<{ id: string; parentId?: string; value: P }> {
   const ids = new Set(blocks.map((b) => b.id));
   const kids = new Map<string | null, IBlock<P>[]>();
   for (const b of blocks) {
@@ -296,10 +296,10 @@ function serializeForCompare(blocks: IBlock<P>[]): Array<{ id: string; parentId?
     if (!kids.has(p)) kids.set(p, []);
     kids.get(p)!.push(b);
   }
-  const out: Array<{ id: string; parentId?: string; props: P }> = [];
+  const out: Array<{ id: string; parentId?: string; value: P }> = [];
   const walk = (p: string | null): void => {
     for (const b of kids.get(p) ?? []) {
-      out.push({ id: b.id, parentId: p ?? undefined, props: b.props });
+      out.push({ id: b.id, parentId: p ?? undefined, value: b.value });
       walk(b.id);
     }
   };
